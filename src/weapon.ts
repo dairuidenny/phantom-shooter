@@ -16,7 +16,7 @@ export class RifleController {
   private readonly muzzle = new THREE.Object3D();
   private readonly muzzleFlash = new THREE.Group();
   private readonly muzzleLight = new THREE.PointLight(0xffb45c, 0, 3);
-  private ammo = GAME_CONFIG.weapon.magazineSize;
+  private ammo: number = GAME_CONFIG.weapon.magazineSize;
   private cooldown = 0;
   private reloadTimer = 0;
   private recoilVisual = 0;
@@ -133,9 +133,11 @@ export class RifleController {
       if (this.ammo > 0) {
         this.fire();
         this.cooldown = 60 / config.roundsPerMinute;
+        if (this.ammo === 0) this.startReload();
       } else if (!this.dryFireLatch) {
         this.audio.dryFire();
         this.dryFireLatch = true;
+        this.startReload();
       }
     }
 
