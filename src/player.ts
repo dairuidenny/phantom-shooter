@@ -230,9 +230,9 @@ export class PlayerController {
       target: target.clone(),
       elapsed: 0,
       duration: THREE.MathUtils.clamp(
-        distance / echoConfig.takeoverSpeed,
-        echoConfig.takeoverMinSeconds,
-        echoConfig.takeoverMaxSeconds,
+        distance / echoConfig.dashSpeed,
+        echoConfig.dashMinSeconds,
+        echoConfig.dashMaxSeconds,
       ),
     };
     this.echoReplacementCompleted = false;
@@ -256,6 +256,8 @@ export class PlayerController {
     replacement.elapsed = Math.min(replacement.duration, replacement.elapsed + deltaSeconds);
     const progress = replacement.elapsed / replacement.duration;
     const position = replacement.start.clone().lerp(replacement.target, progress);
+    // Dash intentionally bypasses the character controller so level and enemy colliders
+    // cannot block the replacement path.
     this.body.setNextKinematicTranslation(position);
 
     if (progress >= 1) {

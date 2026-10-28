@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { GameAudio } from './audio';
 import { GAME_CONFIG } from './config';
 import { InputController } from './input';
@@ -12,6 +15,7 @@ const ECHO_SLOT_COUNT = 3;
 const ECHO_BLUE = 0x39b9ff;
 const ECHO_ORANGE = 0xff8a24;
 const ECHO_ORANGE_EMISSIVE = 0xd94d00;
+const ECHO_BULLET_TIME_OUTLINE = 0xffffff;
 
 interface EchoFrame {
   time: number;
@@ -58,6 +62,12 @@ export class EchoSystem implements WeaponEventSink {
     () => null,
   );
   private readonly raycaster = new THREE.Raycaster();
+  private readonly dashDirection = new THREE.Vector3();
+  private readonly previousDashHitboxCenter = new THREE.Vector3();
+  private readonly currentDashHitboxCenter = new THREE.Vector3();
+  private readonly dashHitEnemyIds = new Set<string>();
+  private dashDamageActive = false;
+  private bulletTimeActive = false;
   private frames: EchoFrame[] = [];
   private actions: EchoAction[] = [];
   private recording = false;
@@ -107,6 +117,12 @@ export class EchoSystem implements WeaponEventSink {
     return this.slots.map((slot) => slot !== null);
   }
 
+  setBulletTimeActive(active: boolean): void {
+    if (active === this.bulletTimeActive) return;
+    this.bulletTimeActive = active;
+    for (const playback of this.slots) playback?.setBulletTimeOutlineActive(active);
+  }
+
   dispose(): void {
     this.setTargetedSlot(null);
     for (let index = 0; index < this.slots.length; index += 1) {
@@ -115,13 +131,18 @@ export class EchoSystem implements WeaponEventSink {
     }
   }
 
-  update(deltaSeconds: number, active: boolean, adsAmount: number): void {
+  update(
+    deltaSeconds: number,
+    active: boolean,
+    adsAmount: number,
+    allowRecording = true,
+  ): void {
     this.addDetonationCharge(this.world.consumeDetonationChargeReward());
-    if (
-      this.replacingSlot !== null &&
-      this.player.consumeEchoReplacementCompleted()
-    ) {
-      this.completeReplacement();
+    if (this.replacingSlot !== null) {
+      this.updateDashDamage();
+      if (this.player.consumeEchoReplacementCompleted()) {
+        this.completeReplacement();
+      }
     }
 
     if (!active) {
@@ -133,7 +154,7 @@ export class EchoSystem implements WeaponEventSink {
     if (this.replacingSlot !== null) return;
 
     const wasRecordingAtFrameStart = this.recording;
-    if (this.input.wasPressed('KeyE')) {
+    if (allowRecording && this.input.wasPressed('KeyE')) {
       if (this.recording) {
         if (this.recordingElapsed >= MIN_RECORDING_SECONDS) {
           this.finishRecording();
@@ -176,9 +197,13 @@ export class EchoSystem implements WeaponEventSink {
     }
 
     this.updateTargeting();
-    if (this.targetedSlot !== null && this.input.wasPressed('KeyF')) {
-      this.beginReplacement(this.targetedSlot);
+  }
+
+  beginTargetedReplacement(): boolean {
+    if (this.recording || this.replacingSlot !== null || this.targetedSlot === null) {
+      return false;
     }
+    return this.beginReplacement(this.targetedSlot);
   }
 
   recordShot(origin: THREE.Vector3, direction: THREE.Vector3): void {
@@ -191,8 +216,8 @@ export class EchoSystem implements WeaponEventSink {
     });
   }
 
-  registerHit(): void {
-    this.addDetonationCharge(1);
+  registerHit(chargeReward: number): void {
+    this.addDetonationCharge(chargeReward);
   }
 
   private addDetonationCharge(amount: number): void {
@@ -211,13 +236,12 @@ export class EchoSystem implements WeaponEventSink {
   private updateTargeting(): void {
     const origin = this.player.getViewPosition(new THREE.Vector3());
     const direction = this.player.getViewDirection(new THREE.Vector3());
-    const range = GAME_CONFIG.echo.takeoverRange;
-    const obstructionDistance = this.world.getRayHitDistance(origin, direction, range);
+    const range = GAME_CONFIG.echo.replacementRange;
     this.raycaster.set(origin, direction);
     this.raycaster.far = range;
 
     let nearestSlot: number | null = null;
-    let nearestDistance = obstructionDistance + 0.001;
+    let nearestDistance = range + 0.001;
     for (let index = 0; index < this.slots.length; index += 1) {
       const playback = this.slots[index];
       if (!playback) continue;
@@ -238,14 +262,30 @@ export class EchoSystem implements WeaponEventSink {
     if (slotIndex !== null) this.slots[slotIndex]?.setTargeted(true);
   }
 
-  private beginReplacement(slotIndex: number): void {
+  private beginReplacement(slotIndex: number): boolean {
     const playback = this.slots[slotIndex];
-    if (!playback) return;
+    if (!playback) return false;
 
     const target = playback.getPosition(new THREE.Vector3());
-    if (!this.player.beginEchoReplacement(target)) return;
+    const start = this.player.getBodyPosition(new THREE.Vector3());
+    if (!this.player.beginEchoReplacement(target)) return false;
+    this.dashDirection.copy(target).sub(start);
+    if (this.dashDirection.lengthSq() > 0.0001) {
+      this.dashDirection.normalize();
+    } else {
+      this.player.getViewDirection(this.dashDirection).normalize();
+    }
+    this.previousDashHitboxCenter
+      .copy(start)
+      .addScaledVector(
+        this.dashDirection,
+        GAME_CONFIG.player.radius * GAME_CONFIG.echo.dashHitboxForwardOffsetMultiplier,
+      );
+    this.dashHitEnemyIds.clear();
+    this.dashDamageActive = true;
     playback.setFrozen(true);
     this.replacingSlot = slotIndex;
+    return true;
   }
 
   private completeReplacement(): void {
@@ -256,6 +296,27 @@ export class EchoSystem implements WeaponEventSink {
     this.slots[this.replacingSlot] = null;
     this.replacingSlot = null;
     this.targetedSlot = null;
+    this.dashDamageActive = false;
+    this.dashHitEnemyIds.clear();
+  }
+
+  private updateDashDamage(): void {
+    if (!this.dashDamageActive) return;
+    this.player
+      .getBodyPosition(this.currentDashHitboxCenter)
+      .addScaledVector(
+        this.dashDirection,
+        GAME_CONFIG.player.radius * GAME_CONFIG.echo.dashHitboxForwardOffsetMultiplier,
+      );
+    this.world.damageEnemiesInDash(
+      this.previousDashHitboxCenter,
+      this.currentDashHitboxCenter,
+      GAME_CONFIG.player.radius * GAME_CONFIG.echo.dashHitboxRadiusMultiplier,
+      GAME_CONFIG.echo.dashDamage,
+      this.player,
+      this.dashHitEnemyIds,
+    );
+    this.previousDashHitboxCenter.copy(this.currentDashHitboxCenter);
   }
 
   private startRecording(adsAmount: number): void {
@@ -286,7 +347,7 @@ export class EchoSystem implements WeaponEventSink {
     const emptySlot = this.slots.findIndex((slot) => slot === null);
     const slotIndex = emptySlot >= 0 ? emptySlot : this.nextSlot;
     this.slots[slotIndex]?.dispose();
-    this.slots[slotIndex] = new EchoPlayback(
+    const playback = new EchoPlayback(
       {
         duration,
         frames: this.frames,
@@ -294,8 +355,10 @@ export class EchoSystem implements WeaponEventSink {
       },
       this.world,
       this.audio,
-      () => this.registerHit(),
+      (chargeReward) => this.registerHit(chargeReward),
     );
+    playback.setBulletTimeOutlineActive(this.bulletTimeActive);
+    this.slots[slotIndex] = playback;
     // Filling the slot currently at the head of the overwrite cycle consumes that
     // turn too; otherwise a freshly refilled oldest slot would be overwritten next.
     if (slotIndex === this.nextSlot) {
@@ -337,6 +400,9 @@ class EchoPlayback {
   private readonly weaponAnchor = new THREE.Group();
   private readonly weaponVisual = new THREE.Group();
   private readonly muzzleFlash: THREE.Mesh;
+  private readonly baseOutline: THREE.LineSegments;
+  private readonly bulletTimeOutline: LineSegments2;
+  private readonly bulletTimeOutlineMaterial: LineMaterial;
   private readonly materialStates = new Map<EchoMaterial, EchoMaterialState>();
   private playhead = 0;
   private actionIndex = 0;
@@ -344,13 +410,14 @@ class EchoPlayback {
   private muzzleFlashTimer = 0;
   private frozen = false;
   private targeted = false;
+  private bulletTimeOutlineActive = false;
   private active = true;
 
   constructor(
     private readonly recording: EchoRecording,
     private readonly world: TrainingWorld,
     private readonly audio: GameAudio,
-    private readonly onHit: () => void,
+    private readonly onHit: (chargeReward: number) => void,
   ) {
     const capsuleGeometry = new THREE.CapsuleGeometry(
       GAME_CONFIG.player.radius,
@@ -372,8 +439,9 @@ class EchoPlayback {
     capsule.renderOrder = 3;
     this.root.add(capsule);
 
-    const outline = new THREE.LineSegments(
-      new THREE.EdgesGeometry(capsuleGeometry, 18),
+    const edgesGeometry = new THREE.EdgesGeometry(capsuleGeometry, 18);
+    this.baseOutline = new THREE.LineSegments(
+      edgesGeometry,
       new THREE.LineBasicMaterial({
         color: 0xa8e6ff,
         transparent: true,
@@ -381,8 +449,29 @@ class EchoPlayback {
         depthWrite: false,
       }),
     );
-    outline.renderOrder = 4;
-    this.root.add(outline);
+    this.baseOutline.renderOrder = 4;
+    this.root.add(this.baseOutline);
+
+    const bulletTimeOutlineGeometry = new LineSegmentsGeometry().fromEdgesGeometry(
+      edgesGeometry,
+    );
+    this.bulletTimeOutlineMaterial = new LineMaterial({
+      color: ECHO_BULLET_TIME_OUTLINE,
+      linewidth: 4,
+      transparent: true,
+      opacity: 1,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.bulletTimeOutline = new LineSegments2(
+      bulletTimeOutlineGeometry,
+      this.bulletTimeOutlineMaterial,
+    );
+    this.bulletTimeOutline.renderOrder = 1000;
+    this.bulletTimeOutline.visible = false;
+    this.bulletTimeOutline.raycast = () => {};
+    this.root.add(this.bulletTimeOutline);
 
     this.buildWeapon();
     this.weaponAnchor.position.y = GAME_CONFIG.player.eyeOffset;
@@ -448,11 +537,22 @@ class EchoPlayback {
     }
   }
 
+  setBulletTimeOutlineActive(active: boolean): void {
+    if (active === this.bulletTimeOutlineActive) return;
+    this.bulletTimeOutlineActive = active;
+    this.baseOutline.visible = !active;
+    this.updateTargetVisual();
+  }
+
   setTargeted(targeted: boolean): void {
     if (targeted === this.targeted) return;
     this.targeted = targeted;
+    this.updateTargetVisual();
+  }
 
-    if (!targeted) {
+  private updateTargetVisual(): void {
+    const highlighted = this.targeted && this.bulletTimeOutlineActive;
+    if (!highlighted) {
       for (const [material, state] of this.materialStates) {
         if (state.color !== undefined) material.color?.setHex(state.color);
         if (state.emissive !== undefined) material.emissive?.setHex(state.emissive);
@@ -460,6 +560,7 @@ class EchoPlayback {
           material.emissiveIntensity = state.emissiveIntensity;
         }
       }
+      this.updateBulletTimeOutline();
       return;
     }
 
@@ -485,6 +586,7 @@ class EchoPlayback {
         }
       }
     });
+    this.updateBulletTimeOutline();
   }
 
   dispose(): void {
@@ -502,6 +604,13 @@ class EchoPlayback {
     });
   }
 
+  private updateBulletTimeOutline(): void {
+    this.bulletTimeOutline.visible = this.bulletTimeOutlineActive;
+    this.bulletTimeOutlineMaterial.color.setHex(
+      this.targeted ? ECHO_ORANGE : ECHO_BULLET_TIME_OUTLINE,
+    );
+  }
+
   private emitActionsUntil(time: number): void {
     while (
       this.actionIndex < this.recording.actions.length &&
@@ -517,7 +626,7 @@ class EchoPlayback {
           this,
         );
         this.world.spawnTracer(action.origin, result.point, ECHO_BLUE);
-        if (result.hitTarget) this.onHit();
+        if (result.hitTarget) this.onHit(result.detonationChargeReward);
         this.audio.echoShot();
         this.muzzleFlashTimer = 0.055;
       } else {

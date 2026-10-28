@@ -3,8 +3,8 @@
   "presetId": "default",
   "name": "Default",
   "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
-  "revision": 4,
-  "lastOperationId": "16939f2b-97b1-46aa-84de-6e9a8af9bb73",
+  "revision": 7,
+  "lastOperationId": "d6125065-9dbd-45ce-a7fc-2921149ade1e",
   "nodes": [
     {
       "nodeId": "resource:system:a95caf8d-49b1-41ea-8195-a23e85ce0dac",
@@ -31,7 +31,7 @@
       "resourceKind": "system",
       "resourceId": "collaboration",
       "hidden": false,
-      "position": 2
+      "position": 3
     },
     {
       "nodeId": "resource:system:2019301f-321f-4438-9485-de06ec3b1913",
@@ -40,7 +40,7 @@
       "resourceKind": "system",
       "resourceId": "assets",
       "hidden": false,
-      "position": 3
+      "position": 4
     },
     {
       "nodeId": "resource:system:c7068e85-aa1d-4f96-9da5-e585c054d4e5",
@@ -49,7 +49,7 @@
       "resourceKind": "system",
       "resourceId": "views",
       "hidden": false,
-      "position": 4
+      "position": 5
     },
     {
       "nodeId": "resource:system:5c49e8c2-714b-4641-a323-d0895f63298f",
@@ -58,7 +58,7 @@
       "resourceKind": "system",
       "resourceId": "agents",
       "hidden": false,
-      "position": 5
+      "position": 6
     },
     {
       "nodeId": "resource:system:95cee366-a89e-409f-a32f-f494226805fb",
@@ -67,7 +67,7 @@
       "resourceKind": "system",
       "resourceId": "archived",
       "hidden": true,
-      "position": 6
+      "position": 7
     },
     {
       "nodeId": "resource:session:d8d5357f-5bbd-456e-8bac-db8227a0d9d5",
@@ -76,7 +76,7 @@
       "resourceKind": "session",
       "resourceId": "f5822083-ece0-439b-9d25-bc7cb6fa2788",
       "hidden": false,
-      "position": 9
+      "position": 12
     },
     {
       "nodeId": "resource:session:130f6faf-81c0-449b-8105-29cef0624e10",
@@ -85,7 +85,7 @@
       "resourceKind": "session",
       "resourceId": "81c236c2-4a38-48e3-99ad-fa167b22aa1a",
       "hidden": false,
-      "position": 8
+      "position": 11
     },
     {
       "nodeId": "resource:session:558906f2-32e6-4242-871a-93e8391ed6fb",
@@ -94,7 +94,35 @@
       "resourceKind": "session",
       "resourceId": "faa14d61-f26d-4ebe-a156-02b549d0b443",
       "hidden": false,
-      "position": 7
+      "position": 10
+    },
+    {
+      "nodeId": "resource:session:c82f7463-bcfa-4c55-861a-10acd51cc1ad",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "session",
+      "resourceId": "029d049e-df0e-4aef-b9ec-c11a3a097c19",
+      "hidden": false,
+      "position": 9
+    },
+    {
+      "nodeId": "resource:knowledge:805ef6fd-c80d-4c56-9658-e38b8bff2a9c",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "knowledge",
+      "resourceId": "kd_9c6051c9-d6ec-4209-b64e-7824dba52c43",
+      "hidden": false,
+      "sourceKind": "knowledge",
+      "position": 2
+    },
+    {
+      "nodeId": "resource:session:9cb9659c-0e1a-4981-a07b-220c6c368ba7",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "session",
+      "resourceId": "bc44e576-5ea5-4906-b860-d0a15e7d6c62",
+      "hidden": false,
+      "position": 8
     }
   ],
   "itemStates": []

@@ -2,11 +2,13 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import './style.css';
 import { GameAudio } from './audio';
+import { BulletTimeController } from './bullet-time';
 import { GAME_CONFIG } from './config';
 import { EchoSystem } from './echo';
 import { InputController } from './input';
 import { LEVELS, type LevelId } from './levels';
 import { PlayerController } from './player';
+import { TrainingTutorialController } from './tutorial';
 import { RifleController } from './weapon';
 import { TrainingWorld } from './world';
 
@@ -16,6 +18,8 @@ interface HudElements {
   resumeButton: HTMLButtonElement;
   failureOverlay: HTMLElement;
   retryButton: HTMLButtonElement;
+  victoryOverlay: HTMLElement;
+  victoryRetryButton: HTMLButtonElement;
   levelName: HTMLElement;
   ammo: HTMLElement;
   ammoState: HTMLElement;
@@ -25,6 +29,13 @@ interface HudElements {
   recordingFrame: HTMLElement;
   recordingRingContainer: SVGSVGElement;
   recordingRing: SVGCircleElement;
+  bulletTimeVignette: HTMLElement;
+  bulletTimeRingContainer: SVGSVGElement;
+  bulletTimeRing: SVGCircleElement;
+  dashSpeedLines: HTMLElement;
+  bulletTimeAbility: HTMLElement;
+  bulletTimeAbilityFill: HTMLElement;
+  tutorialHint: HTMLElement;
   echoSlots: HTMLElement[];
   detonationCharge: HTMLElement;
   detonationChargeFill: HTMLElement;
@@ -45,6 +56,8 @@ interface GameSession {
   world: TrainingWorld;
   player: PlayerController;
   echoSystem: EchoSystem;
+  bulletTime: BulletTimeController;
+  tutorial: TrainingTutorialController | null;
   rifle: RifleController;
 }
 
@@ -84,7 +97,7 @@ function buildHud(): HudElements {
           <div class="control-grid compact">
             <div><kbd>WASD</kbd><span>移动</span></div>
             <div><kbd>LMB</kbd><span>射击</span></div>
-            <div><kbd>E / F</kbd><span>录制 / 取代</span></div>
+            <div><kbd>E / F</kbd><span>录制 / 子弹时间</span></div>
           </div>
           <small>点击关卡卡片开始 · ESC 暂停</small>
         </div>
@@ -95,7 +108,16 @@ function buildHud(): HudElements {
           <h1>防守<br /><span>失败</span></h1>
           <p>方尖碑已被摧毁。重新部署，或选择其他关卡。</p>
           <button id="retry-button" type="button">重新挑战</button>
-          <div class="level-grid failure-level-grid">${levelCards}</div>
+          <div class="level-grid result-level-grid">${levelCards}</div>
+        </div>
+      </section>
+      <section id="victory-overlay" class="overlay victory-overlay">
+        <div class="panel victory-panel">
+          <div class="eyebrow">MISSION STATUS // DEFENSE SECURED</div>
+          <h1>防守<br /><span>胜利</span></h1>
+          <p>所有配置波次均已肃清。重新挑战，或选择其他关卡。</p>
+          <button id="victory-retry-button" type="button">重新挑战</button>
+          <div class="level-grid result-level-grid">${levelCards}</div>
         </div>
       </section>
       <div id="hud" aria-hidden="true">
@@ -108,10 +130,17 @@ function buildHud(): HudElements {
           <strong id="wave-countdown" class="wave-countdown hidden">下一波5秒后到达</strong>
         </div>
         <div id="recording-frame" class="recording-frame"></div>
+        <div id="bullet-time-vignette" class="bullet-time-vignette"></div>
+        <div id="dash-speed-lines" class="dash-speed-lines"></div>
         <svg id="recording-ring" class="recording-ring" viewBox="0 0 72 72">
           <circle class="recording-ring-track" cx="36" cy="36" r="30"></circle>
           <circle id="recording-ring-progress" class="recording-ring-progress" cx="36" cy="36" r="30" pathLength="100"></circle>
         </svg>
+        <svg id="bullet-time-ring" class="bullet-time-ring" viewBox="0 0 88 88">
+          <circle class="bullet-time-ring-track" cx="44" cy="44" r="38"></circle>
+          <circle id="bullet-time-ring-progress" class="bullet-time-ring-progress" cx="44" cy="44" r="38" pathLength="100"></circle>
+        </svg>
+        <div id="tutorial-hint" class="tutorial-hint"></div>
         <div id="echo-slots" class="echo-slots"><i></i><i></i><i></i></div>
         <div id="crosshair" class="crosshair"><i></i><i></i><i></i><i></i></div>
         <div class="status left-status">
@@ -126,6 +155,10 @@ function buildHud(): HudElements {
           <div><span>方尖碑完整度</span><strong id="base-health-value">1000 / 1000</strong></div>
           <i><b id="base-health-fill"></b></i>
         </div>
+        <div id="bullet-time-ability" class="bullet-time-ability ready">
+          <span>子弹时间</span>
+          <kbd><i id="bullet-time-ability-fill"></i><b>F</b></kbd>
+        </div>
         <div id="detonation-charge" class="detonation-charge">
           <kbd>Q</kbd>
           <div>
@@ -137,7 +170,7 @@ function buildHud(): HudElements {
           <span id="ammo-state" class="label">RIFLE // AUTO</span>
           <div><strong id="ammo">30</strong><span>∞</span></div>
         </div>
-        <div class="controls-hint">WASD MOVE · SHIFT SPRINT · SPACE JUMP · RMB ADS · R RELOAD · E RECORD · F TAKE OVER · Q DETONATE</div>
+        <div class="controls-hint">WASD MOVE · SHIFT SPRINT · SPACE JUMP · RMB ADS · R RELOAD · E RECORD · HOLD F BULLET TIME / RELEASE DASH · Q DETONATE</div>
       </div>
       <div class="scanlines"></div>
     </main>
@@ -149,6 +182,8 @@ function buildHud(): HudElements {
     resumeButton: requireElement<HTMLButtonElement>('#resume-button'),
     failureOverlay: requireElement('#failure-overlay'),
     retryButton: requireElement<HTMLButtonElement>('#retry-button'),
+    victoryOverlay: requireElement('#victory-overlay'),
+    victoryRetryButton: requireElement<HTMLButtonElement>('#victory-retry-button'),
     levelName: requireElement('#level-name'),
     ammo: requireElement('#ammo'),
     ammoState: requireElement('#ammo-state'),
@@ -158,6 +193,13 @@ function buildHud(): HudElements {
     recordingFrame: requireElement('#recording-frame'),
     recordingRingContainer: requireElement<SVGSVGElement>('#recording-ring'),
     recordingRing: requireElement<SVGCircleElement>('#recording-ring-progress'),
+    bulletTimeVignette: requireElement('#bullet-time-vignette'),
+    bulletTimeRingContainer: requireElement<SVGSVGElement>('#bullet-time-ring'),
+    bulletTimeRing: requireElement<SVGCircleElement>('#bullet-time-ring-progress'),
+    dashSpeedLines: requireElement('#dash-speed-lines'),
+    bulletTimeAbility: requireElement('#bullet-time-ability'),
+    bulletTimeAbilityFill: requireElement('#bullet-time-ability-fill'),
+    tutorialHint: requireElement('#tutorial-hint'),
     echoSlots: Array.from(document.querySelectorAll<HTMLElement>('#echo-slots i')),
     detonationCharge: requireElement('#detonation-charge'),
     detonationChargeFill: requireElement('#detonation-charge-fill'),
@@ -199,6 +241,7 @@ async function main(): Promise<void> {
   let session: GameSession;
   let hasStarted = false;
   let failureVisible = false;
+  let victoryVisible = false;
   let wasRecording = false;
   let previousBaseHealthFraction = 1;
   let baseHealthShakeCooldown = 0;
@@ -217,6 +260,18 @@ async function main(): Promise<void> {
     document.querySelectorAll<HTMLElement>('[data-level]').forEach((card) => {
       card.classList.toggle('selected', card.dataset.level === levelId);
     });
+  };
+
+  const resetSessionHud = (): void => {
+    hud.recordingFrame.classList.remove('active');
+    hud.recordingRingContainer.classList.remove('active', 'exiting');
+    hud.recordingRing.style.strokeDashoffset = '0';
+    hud.bulletTimeVignette.classList.remove('active');
+    hud.bulletTimeRingContainer.classList.remove('active');
+    hud.bulletTimeRing.style.strokeDashoffset = '0';
+    hud.dashSpeedLines.classList.remove('active');
+    hud.tutorialHint.classList.remove('visible');
+    hud.tutorialHint.textContent = '';
   };
 
   const createSession = (levelId: LevelId): void => {
@@ -238,15 +293,22 @@ async function main(): Promise<void> {
       : new THREE.Vector3(0, 1.05, 14);
     const player = new PlayerController(camera, physicsWorld, input, playerSpawn);
     const echoSystem = new EchoSystem(input, player, world, audio);
+    const bulletTime = new BulletTimeController(input);
+    const tutorial = levelId === 'training'
+      ? new TrainingTutorialController(hud.tutorialHint)
+      : null;
     const rifle = new RifleController(camera, input, player, world, audio, echoSystem);
-    session = { levelId, physicsWorld, world, player, echoSystem, rifle };
+    session = { levelId, physicsWorld, world, player, echoSystem, bulletTime, tutorial, rifle };
     failureVisible = false;
+    victoryVisible = false;
     wasRecording = false;
     previousBaseHealthFraction = world.baseHealthFraction;
     baseHealthShakeCooldown = 0;
     baseHealthShakeQueued = false;
+    resetSessionHud();
     hud.baseHealth.classList.remove('hit');
     hud.failureOverlay.classList.remove('visible');
+    hud.victoryOverlay.classList.remove('visible');
     updateSelectedCards(levelId);
   };
 
@@ -272,8 +334,9 @@ async function main(): Promise<void> {
   });
   hud.resumeButton.addEventListener('click', () => void requestPlay());
   hud.retryButton.addEventListener('click', () => void startLevel(session.levelId));
+  hud.victoryRetryButton.addEventListener('click', () => void startLevel(session.levelId));
   renderer.domElement.addEventListener('click', () => {
-    if (hasStarted && !failureVisible && !input.isLocked) void requestPlay();
+    if (hasStarted && !failureVisible && !victoryVisible && !input.isLocked) void requestPlay();
   });
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -282,7 +345,7 @@ async function main(): Promise<void> {
       hud.menuOverlay.classList.remove('visible');
       return;
     }
-    if (failureVisible) return;
+    if (failureVisible || victoryVisible) return;
     hud.menuOverlay.classList.add('visible');
     hud.menuTitle.innerHTML = hasStarted ? '任务<br /><span>暂停</span>' : '选择<br /><span>关卡</span>';
     hud.resumeButton.classList.toggle('hidden', !hasStarted);
@@ -300,27 +363,57 @@ async function main(): Promise<void> {
   const animate = (time: number): void => {
     const deltaSeconds = Math.min((time - lastTime) / 1000, 0.05);
     lastTime = time;
-    const { world, player, physicsWorld, echoSystem, rifle } = session;
-    const active = input.isLocked && !failureVisible;
+    const { world, player, physicsWorld, echoSystem, bulletTime, tutorial, rifle } = session;
+    const active = input.isLocked && !failureVisible && !victoryVisible;
 
     if (active) {
-      world.update(deltaSeconds);
-      player.update(deltaSeconds, rifle.adsAmount);
-      physicsWorld.timestep = deltaSeconds;
+      const bulletTimeUpdate = bulletTime.update(
+        deltaSeconds,
+        !echoSystem.isRecording && !echoSystem.isReplacing,
+      );
+      echoSystem.setBulletTimeActive(bulletTime.isActive);
+      const gameplayDeltaSeconds = deltaSeconds * bulletTime.timeScale;
+      world.update(gameplayDeltaSeconds);
+      player.update(gameplayDeltaSeconds, rifle.adsAmount);
+      physicsWorld.timestep = gameplayDeltaSeconds;
       physicsWorld.step();
-      player.syncCamera(deltaSeconds);
+      player.syncCamera(gameplayDeltaSeconds);
       world.scene.updateMatrixWorld(true);
-      echoSystem.update(deltaSeconds, true, rifle.adsAmount);
-      rifle.update(deltaSeconds, !echoSystem.isReplacing);
+      echoSystem.update(
+        gameplayDeltaSeconds,
+        true,
+        rifle.adsAmount,
+        !bulletTime.isActive && !bulletTimeUpdate.ended,
+      );
+      if (bulletTimeUpdate.ended) echoSystem.beginTargetedReplacement();
+      rifle.update(gameplayDeltaSeconds, !echoSystem.isReplacing);
+      tutorial?.update(deltaSeconds, {
+        isRecording: echoSystem.isRecording,
+        echoCount: echoSystem.slotStates.filter(Boolean).length,
+        detonationReady: echoSystem.isDetonationReady,
+        bulletTimeActive: bulletTime.isActive,
+        isDashing: echoSystem.isReplacing,
+      });
     } else {
+      bulletTime.cancel();
+      echoSystem.setBulletTimeActive(false);
       world.scene.updateMatrixWorld(true);
     }
 
     if (world.isFailed && !failureVisible) {
       failureVisible = true;
+      bulletTime.cancel();
+      echoSystem.setBulletTimeActive(false);
       if (input.isLocked) document.exitPointerLock();
       hud.menuOverlay.classList.remove('visible');
       hud.failureOverlay.classList.add('visible');
+    } else if (world.isCompleted && !victoryVisible) {
+      victoryVisible = true;
+      bulletTime.cancel();
+      echoSystem.setBulletTimeActive(false);
+      if (input.isLocked) document.exitPointerLock();
+      hud.menuOverlay.classList.remove('visible');
+      hud.victoryOverlay.classList.add('visible');
     }
 
     const level = LEVELS.find((candidate) => candidate.id === session.levelId)!;
@@ -346,6 +439,16 @@ async function main(): Promise<void> {
       hud.recordingRing.style.strokeDashoffset = `${echoSystem.recordingProgress * 100}`;
     }
     wasRecording = isRecording;
+    const isBulletTimeActive = bulletTime.isActive;
+    const isBulletTimeReady = bulletTime.isReady && !isRecording && !echoSystem.isReplacing;
+    hud.bulletTimeVignette.classList.toggle('active', isBulletTimeActive);
+    hud.bulletTimeRingContainer.classList.toggle('active', isBulletTimeActive);
+    hud.bulletTimeRing.style.strokeDashoffset = `${(1 - bulletTime.remainingProgress) * 100}`;
+    hud.dashSpeedLines.classList.toggle('active', echoSystem.isReplacing);
+    hud.bulletTimeAbilityFill.style.height = `${bulletTime.cooldownProgress * 100}%`;
+    hud.bulletTimeAbility.classList.toggle('ready', isBulletTimeReady);
+    hud.bulletTimeAbility.classList.toggle('active', isBulletTimeActive);
+    hud.bulletTimeAbility.classList.toggle('blocked', isRecording || echoSystem.isReplacing);
     const slotStates = echoSystem.slotStates;
     hud.echoSlots.forEach((slot, index) => slot.classList.toggle('active', slotStates[index]));
     hud.detonationChargeFill.style.width = `${echoSystem.detonationChargeProgress * 100}%`;
@@ -353,7 +456,7 @@ async function main(): Promise<void> {
     hud.detonationCharge.classList.toggle('ready', echoSystem.isDetonationReady);
     hud.stats.textContent = `${accuracy.hits} HIT / ${accuracy.shots} SHOT`;
     hud.sprint.textContent = echoSystem.isReplacing
-      ? 'TAKEOVER'
+      ? 'DASH'
       : input.isDown('ShiftLeft') || input.isDown('ShiftRight')
         ? 'SPRINT'
         : 'READY';

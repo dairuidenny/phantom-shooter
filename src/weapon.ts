@@ -8,7 +8,7 @@ import { TrainingWorld } from './world';
 export interface WeaponEventSink {
   recordShot(origin: THREE.Vector3, direction: THREE.Vector3): void;
   recordReload(): void;
-  registerHit(): void;
+  registerHit(chargeReward: number): void;
 }
 
 export class RifleController {
@@ -20,6 +20,7 @@ export class RifleController {
   private cooldown = 0;
   private reloadTimer = 0;
   private recoilVisual = 0;
+  private muzzleFlashTimer = 0;
   private spreadBloom = 0;
   private shotsInBurst = 0;
   private timeSinceLastShot = Number.POSITIVE_INFINITY;
@@ -80,6 +81,9 @@ export class RifleController {
   update(deltaSeconds: number, active: boolean): void {
     const config = GAME_CONFIG.weapon;
     this.cooldown = Math.max(0, this.cooldown - deltaSeconds);
+    this.muzzleFlashTimer = Math.max(0, this.muzzleFlashTimer - deltaSeconds);
+    this.muzzleFlash.visible = this.muzzleFlashTimer > 0;
+    this.muzzleLight.intensity = this.muzzleFlashTimer > 0 ? 9 : 0;
     this.recoilVisual = THREE.MathUtils.damp(this.recoilVisual, 0, 20, deltaSeconds);
     this.timeSinceLastShot += deltaSeconds;
     if (this.timeSinceLastShot >= config.spreadRecoveryDelay) {
@@ -167,7 +171,7 @@ export class RifleController {
 
     if (result.hitTarget) {
       this.audio.hit();
-      this.eventSink?.registerHit();
+      this.eventSink?.registerHit(result.detonationChargeReward);
     }
 
     const recoilProgress = THREE.MathUtils.clamp(
@@ -193,14 +197,11 @@ export class RifleController {
       this.spreadBloom + config.spreadPerShot,
     );
 
+    this.muzzleFlashTimer = 0.035;
     this.muzzleFlash.visible = true;
     this.muzzleFlash.rotation.z = Math.random() * Math.PI;
     this.muzzleFlash.scale.setScalar(0.75 + Math.random() * 0.45);
     this.muzzleLight.intensity = 9;
-    window.setTimeout(() => {
-      this.muzzleFlash.visible = false;
-      this.muzzleLight.intensity = 0;
-    }, 35);
   }
 
   private startReload(): void {

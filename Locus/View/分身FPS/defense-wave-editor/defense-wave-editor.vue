@@ -39,6 +39,7 @@ interface WaveConfig {
 interface DefenseConfig {
   enemies: Record<EnemyId, EnemyDefinition>;
   waves: WaveConfig[];
+  infiniteWaves: boolean;
 }
 
 const CONFIG_PATH = "src/defense-config.ts";
@@ -80,7 +81,7 @@ function createEmptyWave(): WaveConfig {
 }
 
 function createEmptyConfig(): DefenseConfig {
-  return { enemies: createDefaultEnemies(), waves: [createEmptyWave()] };
+  return { enemies: createDefaultEnemies(), waves: [createEmptyWave()], infiniteWaves: false };
 }
 
 function clone<T>(value: T): T {
@@ -118,7 +119,7 @@ function normalizeConfig(value: any): DefenseConfig {
       }),
     };
   });
-  return { enemies, waves };
+  return { enemies, waves, infiniteWaves: value?.infiniteWaves === true };
 }
 
 function extractData(source: string): string {
@@ -241,7 +242,10 @@ function addWave(): void {
 function removeLastWave(): void {
   if (config.value.waves.length <= 1) return;
   const number = config.value.waves.length;
-  if (!window.confirm("删除第 " + number + " 波配置？之后波次将沿用新的最后一波。")) return;
+  const consequence = config.value.infiniteWaves
+    ? "之后波次将沿用新的最后一波。"
+    : "新的最后一波清空后将进入胜利。";
+  if (!window.confirm("删除第 " + number + " 波配置？" + consequence)) return;
   config.value.waves.pop();
   currentWaveIndex.value = Math.min(currentWaveIndex.value, config.value.waves.length - 1);
   status.value = "已删除第 " + number + " 波";
@@ -283,7 +287,15 @@ onMounted(() => void loadConfig(true));
         >{{ index + 1 }}</button>
         <BaseButton :disabled="busy" @click="addWave">+ 新增波次</BaseButton>
         <BaseButton :disabled="busy || config.waves.length <= 1" @click="removeLastWave">删除末波</BaseButton>
-        <span class="inherit-note">第 {{ config.waves.length + 1 }} 波起沿用第 {{ config.waves.length }} 波</span>
+        <span class="inherit-note">
+          {{ config.infiniteWaves
+            ? "第 " + (config.waves.length + 1) + " 波起沿用第 " + config.waves.length + " 波"
+            : "完成第 " + config.waves.length + " 波后胜利" }}
+        </span>
+        <label class="infinite-toggle">
+          <input v-model="config.infiniteWaves" type="checkbox" />
+          <span>无限波次</span>
+        </label>
       </div>
       <div class="actions">
         <span class="state" :class="{ modified: dirty, failed: !!error }">{{ error || status }}</span>
@@ -395,6 +407,21 @@ onMounted(() => void loadConfig(true));
 }
 .wave-tab.active { border-color: var(--accent-color, #4aa3ff); color: #fff; background: #245c8f; }
 .inherit-note, .state { color: var(--text-secondary, #9299a4); white-space: nowrap; }
+.infinite-toggle {
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-color, #3a3e47);
+  border-radius: 3px;
+  color: var(--text-color, #d8dde5);
+  background: var(--panel-color, #24272e);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.infinite-toggle input { width: 14px; min-width: 14px; height: 14px; margin: 0; accent-color: var(--accent-color, #4aa3ff); }
 .state.modified { color: #e5b85c; }
 .state.failed { color: #ff7777; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
 .summary-bar {

@@ -12,4 +12,4 @@ maintenanceRules: |-
   - Remove one-off arrangements, temporary phrasing, and unconfirmed inferences
 ---
 
-
+- 实现任务如有会实质影响目标或结果的关键细节，或边界情况，先与用户确认；没有此类关键歧义时直接开始实现。

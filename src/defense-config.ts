@@ -34,6 +34,7 @@ export interface WaveConfig {
 export interface DefenseConfig {
   enemies: Record<EnemyId, EnemyDefinition>;
   waves: WaveConfig[];
+  infiniteWaves: boolean;
 }
 
 export const DEFENSE_CONFIG: DefenseConfig =
@@ -85,6 +86,7 @@ export const DEFENSE_CONFIG: DefenseConfig =
       "killChargeReward": 10
     }
   },
+  "infiniteWaves": false,
   "waves": [
     {
       "spawnPoints": [
