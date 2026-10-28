@@ -25,6 +25,18 @@ npm run preview
 
 生产文件输出到 `dist/`，可部署到任意静态网站托管服务。由于浏览器 Pointer Lock 和音频策略，请通过 HTTP 服务访问，不要直接双击打开构建后的 HTML。
 
+## GitHub Pages 自动部署
+
+仓库包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 分支后，GitHub Actions 会自动安装依赖、构建项目并部署 `dist/`。也可以在仓库的 Actions 页面手动运行该工作流。
+
+首次使用时，需要在 GitHub 仓库中进入 **Settings → Pages**，将 **Build and deployment → Source** 设置为 **GitHub Actions**。部署成功后的地址为：
+
+```text
+https://dairuidenny.github.io/phantom-shooter/
+```
+
+Pages 子路径配置位于 `vite.config.ts`；如果仓库改名，需要同步修改其中的 `base`。
+
 ## 操作
 
 - `WASD`：移动
