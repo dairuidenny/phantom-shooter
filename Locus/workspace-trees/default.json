@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 3,
+  "presetId": "default",
+  "name": "Default",
+  "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+  "revision": 3,
+  "lastOperationId": "4fe22079-071b-4e2e-8371-25dec61d4b67",
+  "nodes": [
+    {
+      "nodeId": "resource:system:a95caf8d-49b1-41ea-8195-a23e85ce0dac",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "newSession",
+      "hidden": false,
+      "position": 0
+    },
+    {
+      "nodeId": "resource:system:de1d8d59-37cf-4310-a0b8-11c8387bc0d2",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "knowledge",
+      "hidden": false,
+      "position": 1
+    },
+    {
+      "nodeId": "resource:system:794853c7-6669-424b-95e4-552445508698",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "collaboration",
+      "hidden": false,
+      "position": 2
+    },
+    {
+      "nodeId": "resource:system:2019301f-321f-4438-9485-de06ec3b1913",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "assets",
+      "hidden": false,
+      "position": 3
+    },
+    {
+      "nodeId": "resource:system:c7068e85-aa1d-4f96-9da5-e585c054d4e5",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "views",
+      "hidden": false,
+      "position": 4
+    },
+    {
+      "nodeId": "resource:system:5c49e8c2-714b-4641-a323-d0895f63298f",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "agents",
+      "hidden": false,
+      "position": 5
+    },
+    {
+      "nodeId": "resource:system:95cee366-a89e-409f-a32f-f494226805fb",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "system",
+      "resourceId": "archived",
+      "hidden": true,
+      "position": 6
+    },
+    {
+      "nodeId": "resource:session:d8d5357f-5bbd-456e-8bac-db8227a0d9d5",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "session",
+      "resourceId": "f5822083-ece0-439b-9d25-bc7cb6fa2788",
+      "hidden": false,
+      "position": 8
+    },
+    {
+      "nodeId": "resource:session:130f6faf-81c0-449b-8105-29cef0624e10",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "session",
+      "resourceId": "81c236c2-4a38-48e3-99ad-fa167b22aa1a",
+      "hidden": false,
+      "position": 7
+    }
+  ],
+  "itemStates": []
+}
