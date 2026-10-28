@@ -635,6 +635,35 @@ kbd {
   opacity: 1;
 }
 
+.base-health.visible.hit {
+  animation: base-health-hit 380ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes base-health-hit {
+  0%,
+  100% {
+    transform: translateX(-50%);
+    filter: none;
+  }
+  16% {
+    transform: translateX(calc(-50% - 10px)) translateY(1px);
+    filter: drop-shadow(0 0 7px rgba(239, 51, 64, 0.9));
+  }
+  34% {
+    transform: translateX(calc(-50% + 8px)) translateY(-1px);
+  }
+  52% {
+    transform: translateX(calc(-50% - 6px));
+  }
+  70% {
+    transform: translateX(calc(-50% + 4px));
+    filter: drop-shadow(0 0 3px rgba(239, 51, 64, 0.55));
+  }
+  86% {
+    transform: translateX(calc(-50% - 2px));
+  }
+}
+
 .base-health > div {
   display: flex;
   justify-content: space-between;
@@ -717,8 +746,9 @@ kbd {
 .detonation-charge-track::after {
   content: '';
   position: absolute;
-  inset: -1px;
-  border: 1px solid #59c8ff;
+  inset: -3px;
+  border: 3px solid #59c8ff;
+  box-shadow: 0 0 10px rgba(57, 185, 255, 0.72);
   opacity: 0;
   pointer-events: none;
 }
@@ -737,7 +767,7 @@ kbd {
 }
 
 .detonation-charge.ready .detonation-charge-track::after {
-  animation: detonation-charge-expand 1.35s ease-out infinite;
+  animation: detonation-charge-expand 2.4s cubic-bezier(0.16, 0.68, 0.24, 1) infinite;
 }
 
 .detonation-charge.ready > kbd {
@@ -760,13 +790,20 @@ kbd {
 
 @keyframes detonation-charge-expand {
   0% {
-    opacity: 0.9;
+    opacity: 1;
     transform: scale(1, 1);
   }
-  75%,
+  68% {
+    opacity: 1;
+    transform: scale(1.11, 2.15);
+  }
+  82% {
+    opacity: 0.92;
+    transform: scale(1.14, 2.5);
+  }
   100% {
     opacity: 0;
-    transform: scale(1.1, 2.25);
+    transform: scale(1.18, 2.85);
   }
 }
 

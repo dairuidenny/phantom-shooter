@@ -1,12 +1,18 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { GAME_CONFIG } from './config';
+import { DEFENSE_CONFIG, type EnemyId } from './defense-config';
 import type { LevelId } from './levels';
 
 export interface ShotResult {
   point: THREE.Vector3;
   normal: THREE.Vector3;
   hitTarget: boolean;
+}
+
+export interface EnemyAggroSource {
+  isEnemyAggroActive(): boolean;
+  getEnemyAggroPosition(target: THREE.Vector3): THREE.Vector3;
 }
 
 interface TargetState {
@@ -20,11 +26,27 @@ interface TargetState {
 }
 
 interface EnemyState {
+  enemyType: EnemyId;
   mesh: THREE.Mesh;
   material: THREE.MeshStandardMaterial;
   health: number;
+  speed: number;
+  attackDamage: number;
+  killChargeReward: number;
+  fallDistance: number;
   attackCooldown: number;
   attackFlash: number;
+  shield?: EnemyShieldState;
+  aggroSource?: EnemyAggroSource;
+  aggroSeconds: number;
+}
+
+interface EnemyShieldState {
+  owner: EnemyState;
+  mesh: THREE.Mesh;
+  material: THREE.MeshStandardMaterial;
+  heading: number;
+  hitFlash: number;
 }
 
 interface EnemyDeathAnimation {
@@ -36,6 +58,7 @@ interface EnemyDeathAnimation {
   rotationAxis: THREE.Vector3;
   elapsed: number;
   duration: number;
+  fallDistance: number;
   blastVelocity?: THREE.Vector3;
   spinAxis?: THREE.Vector3;
 }
@@ -52,6 +75,7 @@ interface DamageNumberState {
 interface EnemySpawnEvent {
   time: number;
   hour: number;
+  enemyType: EnemyId;
 }
 
 interface TimedObject {
@@ -72,24 +96,113 @@ const COLORS = {
   glow: 0xff5a62,
 };
 
-const FIRST_WAVE_SPAWN_HOURS = [11, 1, 12] as const;
-const ENEMIES_PER_SUBWAVE = 10;
-const SUBWAVE_SPAWN_SECONDS = 1;
-const SUBWAVE_GAP_SECONDS = 1;
+const ENEMY_SPAWN_RATE_PER_SECOND = 10;
 const ENEMY_DEATH_SECONDS = 0.425;
 const DAMAGE_NUMBER_SECONDS = 0.9;
 const ENEMY_BASE_COLOR = 0xe32932;
 const ENEMY_HIT_COLOR = new THREE.Color(0xffffff);
+const SHIELD_ARC_RADIANS = THREE.MathUtils.degToRad(100);
+const SHIELD_DISTANCE = 3.5;
+const SHIELD_HEIGHT = 3;
+const SHIELD_THICKNESS = 0.16;
+const SHIELD_ROTATION_SPEED = THREE.MathUtils.degToRad(540);
+const SHIELD_AGGRO_SECONDS = 2;
+const SHIELD_BASE_COLOR = 0xd1d4d5;
+const SHIELD_HIT_COLOR = new THREE.Color(0xffffff);
+
+function createShieldGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const segments = 24;
+  const innerRadius = SHIELD_DISTANCE - SHIELD_THICKNESS / 2;
+  const outerRadius = SHIELD_DISTANCE + SHIELD_THICKNESS / 2;
+  const bottom = -SHIELD_HEIGHT / 2;
+  const top = SHIELD_HEIGHT / 2;
+  const startAngle = -SHIELD_ARC_RADIANS / 2;
+
+  const point = (radius: number, angle: number, y: number): [number, number, number] => [
+    Math.sin(angle) * radius,
+    y,
+    -Math.cos(angle) * radius,
+  ];
+  const addQuad = (
+    first: [number, number, number],
+    second: [number, number, number],
+    third: [number, number, number],
+    fourth: [number, number, number],
+  ): void => {
+    const offset = positions.length / 3;
+    positions.push(...first, ...second, ...third, ...fourth);
+    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
+  };
+
+  for (let segment = 0; segment < segments; segment += 1) {
+    const firstAngle = startAngle + (segment / segments) * SHIELD_ARC_RADIANS;
+    const secondAngle = startAngle + ((segment + 1) / segments) * SHIELD_ARC_RADIANS;
+    addQuad(
+      point(outerRadius, firstAngle, bottom),
+      point(outerRadius, secondAngle, bottom),
+      point(outerRadius, secondAngle, top),
+      point(outerRadius, firstAngle, top),
+    );
+    addQuad(
+      point(innerRadius, secondAngle, bottom),
+      point(innerRadius, firstAngle, bottom),
+      point(innerRadius, firstAngle, top),
+      point(innerRadius, secondAngle, top),
+    );
+    addQuad(
+      point(innerRadius, firstAngle, top),
+      point(outerRadius, firstAngle, top),
+      point(outerRadius, secondAngle, top),
+      point(innerRadius, secondAngle, top),
+    );
+    addQuad(
+      point(innerRadius, secondAngle, bottom),
+      point(outerRadius, secondAngle, bottom),
+      point(outerRadius, firstAngle, bottom),
+      point(innerRadius, firstAngle, bottom),
+    );
+  }
+
+  const endAngle = startAngle + SHIELD_ARC_RADIANS;
+  addQuad(
+    point(innerRadius, startAngle, bottom),
+    point(outerRadius, startAngle, bottom),
+    point(outerRadius, startAngle, top),
+    point(innerRadius, startAngle, top),
+  );
+  addQuad(
+    point(outerRadius, endAngle, bottom),
+    point(innerRadius, endAngle, bottom),
+    point(innerRadius, endAngle, top),
+    point(outerRadius, endAngle, top),
+  );
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function moveAngleToward(current: number, target: number, maxDelta: number): number {
+  const difference = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  if (Math.abs(difference) <= maxDelta) return target;
+  return current + Math.sign(difference) * maxDelta;
+}
 
 export class TrainingWorld {
   readonly scene = new THREE.Scene();
   private readonly shootables: THREE.Object3D[] = [];
   private readonly targets: TargetState[] = [];
   private readonly enemies: EnemyState[] = [];
+  private readonly enemyShields: EnemyShieldState[] = [];
   private readonly enemyDeaths: EnemyDeathAnimation[] = [];
   private readonly damageNumbers: DamageNumberState[] = [];
   private readonly effects: TimedObject[] = [];
   private readonly raycaster = new THREE.Raycaster();
+  private readonly aggroTargetPosition = new THREE.Vector3();
   private readonly spawnEvents: EnemySpawnEvent[] = [];
   private elapsed = 0;
   private hits = 0;
@@ -99,6 +212,7 @@ export class TrainingWorld {
   private waveElapsed = 0;
   private waveIntermission = 0;
   private remainingEnemies = 0;
+  private pendingDetonationChargeReward = 0;
   private towerHealth: number = GAME_CONFIG.defense.towerMaxHealth;
   private failed = false;
 
@@ -209,6 +323,7 @@ export class TrainingWorld {
     direction: THREE.Vector3,
     range: number,
     countStats = true,
+    attacker?: EnemyAggroSource,
   ): ShotResult {
     if (countStats) this.shots += 1;
     this.raycaster.set(origin, direction);
@@ -230,15 +345,24 @@ export class TrainingWorld {
       : direction.clone().negate();
     const target = this.targets.find((candidate) => candidate.plate === intersection.object);
     const enemy = this.enemies.find((candidate) => candidate.mesh === intersection.object);
+    const shield = this.enemyShields.find(
+      (candidate) => candidate.mesh === intersection.object,
+    );
     if (target) {
       target.flash = 0.15;
       if (countStats) this.hits += 1;
       this.spawnImpactParticles(intersection.point, normal, COLORS.red);
+    } else if (shield) {
+      if (countStats) this.hits += 1;
+      shield.hitFlash = 0.18;
+      this.registerEnemyAggro(shield.owner, attacker);
+      this.spawnImpactParticles(intersection.point, normal, SHIELD_BASE_COLOR);
     } else if (enemy) {
       if (countStats) this.hits += 1;
       const damage = GAME_CONFIG.weapon.damage;
       enemy.health -= damage;
       enemy.attackFlash = 0.18;
+      this.registerEnemyAggro(enemy, attacker);
       this.spawnDamageNumber(intersection.point, damage);
       this.spawnImpactParticles(intersection.point, normal, 0xff3b30);
       if (enemy.health <= 0) this.killEnemy(enemy, direction);
@@ -250,7 +374,7 @@ export class TrainingWorld {
     return {
       point: intersection.point.clone(),
       normal,
-      hitTarget: Boolean(target || enemy),
+      hitTarget: Boolean(target || enemy || shield),
     };
   }
 
@@ -342,6 +466,12 @@ export class TrainingWorld {
     return { hits: this.hits, shots: this.shots };
   }
 
+  consumeDetonationChargeReward(): number {
+    const reward = this.pendingDetonationChargeReward;
+    this.pendingDetonationChargeReward = 0;
+    return reward;
+  }
+
   dispose(): void {
     this.scene.traverse((object) => {
       const renderable = object as THREE.Mesh;
@@ -358,6 +488,7 @@ export class TrainingWorld {
     this.shootables.length = 0;
     this.targets.length = 0;
     this.enemies.length = 0;
+    this.enemyShields.length = 0;
     this.enemyDeaths.length = 0;
     this.damageNumbers.length = 0;
     this.effects.length = 0;
@@ -375,7 +506,10 @@ export class TrainingWorld {
       this.nextSpawnIndex < this.spawnEvents.length &&
       this.spawnEvents[this.nextSpawnIndex].time <= this.waveElapsed
     ) {
-      this.spawnEnemy(this.spawnEvents[this.nextSpawnIndex].hour);
+      this.spawnEnemy(
+        this.spawnEvents[this.nextSpawnIndex].hour,
+        this.spawnEvents[this.nextSpawnIndex].enemyType,
+      );
       this.nextSpawnIndex += 1;
     }
   }
@@ -388,20 +522,24 @@ export class TrainingWorld {
       enemy.material.color.setHex(ENEMY_BASE_COLOR).lerp(ENEMY_HIT_COLOR, flashAmount * 0.92);
       enemy.material.emissive.setHex(0xffffff);
       enemy.material.emissiveIntensity = flashAmount * 4.5;
+
+      this.updateEnemyAggro(enemy, deltaSeconds);
       const distance = Math.hypot(enemy.mesh.position.x, enemy.mesh.position.z);
-      if (distance > config.towerAttackRadius) {
+      const moving = distance > config.towerAttackRadius;
+      if (moving) {
         const moveDistance = Math.min(
-          config.enemySpeed * deltaSeconds,
+          enemy.speed * deltaSeconds,
           distance - config.towerAttackRadius,
         );
         enemy.mesh.position.x -= (enemy.mesh.position.x / distance) * moveDistance;
         enemy.mesh.position.z -= (enemy.mesh.position.z / distance) * moveDistance;
-        continue;
       }
+      this.updateEnemyShield(enemy, deltaSeconds);
+      if (moving) continue;
 
       enemy.attackCooldown -= deltaSeconds;
       if (enemy.attackCooldown <= 0) {
-        this.towerHealth = Math.max(0, this.towerHealth - config.enemyAttackDamage);
+        this.towerHealth = Math.max(0, this.towerHealth - enemy.attackDamage);
         enemy.attackCooldown += config.enemyAttackInterval;
         enemy.attackFlash = 0.18;
         if (this.towerHealth <= 0) {
@@ -413,30 +551,38 @@ export class TrainingWorld {
   }
 
   private prepareWave(waveNumber: number): void {
-    const spawnHours: readonly number[] = FIRST_WAVE_SPAWN_HOURS;
-    const enemiesPerSubwave = ENEMIES_PER_SUBWAVE;
-    const spawnSeconds = SUBWAVE_SPAWN_SECONDS;
-    const subwaveDuration = spawnSeconds + SUBWAVE_GAP_SECONDS;
+    const configuredWaveCount = DEFENSE_CONFIG.waves.length;
+    const waveConfig = DEFENSE_CONFIG.waves[
+      Math.min(waveNumber, configuredWaveCount) - 1
+    ];
+    if (!waveConfig) throw new Error('Defense config must contain at least one wave.');
 
     this.spawnEvents.length = 0;
     this.nextSpawnIndex = 0;
     this.waveElapsed = 0;
     this.waveIntermission = 0;
     this.currentWaveNumber = waveNumber;
-    for (let subwave = 0; subwave < spawnHours.length; subwave += 1) {
-      const startTime = subwave * subwaveDuration;
-      for (let enemy = 0; enemy < enemiesPerSubwave; enemy += 1) {
-        this.spawnEvents.push({
-          time: startTime + (enemy / (enemiesPerSubwave - 1)) * spawnSeconds,
-          hour: spawnHours[subwave],
-        });
+
+    for (const spawnPoint of waveConfig.spawnPoints) {
+      let spawnIndex = 0;
+      for (const enemyGroup of spawnPoint.enemies) {
+        for (let enemy = 0; enemy < enemyGroup.count; enemy += 1) {
+          this.spawnEvents.push({
+            time: spawnPoint.delaySeconds + spawnIndex / ENEMY_SPAWN_RATE_PER_SECOND,
+            hour: spawnPoint.hour,
+            enemyType: enemyGroup.enemyType,
+          });
+          spawnIndex += 1;
+        }
       }
     }
+    this.spawnEvents.sort((first, second) => first.time - second.time);
     this.remainingEnemies = this.spawnEvents.length;
   }
 
-  private spawnEnemy(hour: number): void {
+  private spawnEnemy(hour: number, enemyType: EnemyId): void {
     const config = GAME_CONFIG.defense;
+    const archetype = DEFENSE_CONFIG.enemies[enemyType];
     const baseAngle = ((hour % 12) / 12) * Math.PI * 2;
     const angle = baseAngle + THREE.MathUtils.degToRad(
       (Math.random() * 2 - 1) * config.spawnAngleJitterDegrees,
@@ -447,36 +593,154 @@ export class TrainingWorld {
       emissive: 0x8d0810,
       emissiveIntensity: 0,
     });
-    const mesh = new THREE.Mesh(
-      new THREE.CapsuleGeometry(
-        GAME_CONFIG.player.radius,
-        GAME_CONFIG.player.halfHeight * 2,
-        6,
-        12,
-      ),
-      material,
-    );
+    const geometry = archetype.shape === 'sphere'
+      ? new THREE.SphereGeometry(0.5, 20, 14)
+      : new THREE.CapsuleGeometry(
+          archetype.width / 2,
+          Math.max(0, archetype.height - archetype.width),
+          6,
+          12,
+        );
+    const mesh = new THREE.Mesh(geometry, material);
+    if (archetype.shape === 'sphere') {
+      mesh.scale.set(archetype.width, archetype.height, archetype.width);
+    }
+    mesh.name = archetype.label;
     mesh.position.set(
       Math.sin(angle) * config.spawnRadius,
-      GAME_CONFIG.player.radius + GAME_CONFIG.player.halfHeight,
+      archetype.height / 2,
       -Math.cos(angle) * config.spawnRadius,
     );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.shootables.push(mesh);
-    this.enemies.push({
+    const enemyState: EnemyState = {
+      enemyType,
       mesh,
       material,
-      health: config.enemyHealth,
+      health: archetype.health,
+      speed: archetype.speed,
+      attackDamage: archetype.towerDamage,
+      killChargeReward: archetype.killChargeReward ?? 0,
+      fallDistance: Math.max(0, (archetype.height - archetype.width) / 2),
       attackCooldown: config.enemyAttackInterval,
       attackFlash: 0,
+      aggroSeconds: 0,
+    };
+    this.enemies.push(enemyState);
+    if (enemyType === 'd') this.createEnemyShield(enemyState);
+  }
+
+  private createEnemyShield(enemy: EnemyState): void {
+    const material = new THREE.MeshStandardMaterial({
+      color: SHIELD_BASE_COLOR,
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
+      roughness: 0.72,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+      side: THREE.DoubleSide,
     });
+    const mesh = new THREE.Mesh(createShieldGeometry(), material);
+    mesh.name = 'Shield enemy arc wall';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.renderOrder = 2;
+    const shield: EnemyShieldState = {
+      owner: enemy,
+      mesh,
+      material,
+      heading: this.getEnemyForwardHeading(enemy),
+      hitFlash: 0,
+    };
+    enemy.shield = shield;
+    this.enemyShields.push(shield);
+    this.scene.add(mesh);
+    this.shootables.push(mesh);
+    this.updateEnemyShield(enemy, 0);
+  }
+
+  private removeEnemyShield(enemy: EnemyState): void {
+    const shield = enemy.shield;
+    if (!shield) return;
+    const shieldIndex = this.enemyShields.indexOf(shield);
+    if (shieldIndex >= 0) this.enemyShields.splice(shieldIndex, 1);
+    const shootableIndex = this.shootables.indexOf(shield.mesh);
+    if (shootableIndex >= 0) this.shootables.splice(shootableIndex, 1);
+    shield.mesh.removeFromParent();
+    shield.mesh.geometry.dispose();
+    shield.material.dispose();
+    enemy.shield = undefined;
+  }
+
+  private registerEnemyAggro(
+    enemy: EnemyState,
+    attacker?: EnemyAggroSource,
+  ): void {
+    if (enemy.enemyType !== 'd' || !attacker?.isEnemyAggroActive()) return;
+    const current = enemy.aggroSource;
+    if (current && current !== attacker && current.isEnemyAggroActive()) return;
+    enemy.aggroSource = attacker;
+    enemy.aggroSeconds = SHIELD_AGGRO_SECONDS;
+  }
+
+  private updateEnemyAggro(enemy: EnemyState, deltaSeconds: number): void {
+    const source = enemy.aggroSource;
+    if (!source) return;
+    if (!source.isEnemyAggroActive()) {
+      enemy.aggroSource = undefined;
+      enemy.aggroSeconds = 0;
+      return;
+    }
+    enemy.aggroSeconds = Math.max(0, enemy.aggroSeconds - deltaSeconds);
+    if (enemy.aggroSeconds <= 0) enemy.aggroSource = undefined;
+  }
+
+  private updateEnemyShield(enemy: EnemyState, deltaSeconds: number): void {
+    const shield = enemy.shield;
+    if (!shield) return;
+
+    shield.hitFlash = Math.max(0, shield.hitFlash - deltaSeconds);
+    const flashAmount = THREE.MathUtils.clamp(shield.hitFlash / 0.18, 0, 1);
+    shield.material.color
+      .setHex(SHIELD_BASE_COLOR)
+      .lerp(SHIELD_HIT_COLOR, flashAmount * 0.95);
+    shield.material.emissiveIntensity = flashAmount * 3.8;
+    shield.material.opacity = 0.34 + flashAmount * 0.24;
+
+    let targetHeading = this.getEnemyForwardHeading(enemy);
+    const aggroSource = enemy.aggroSource;
+    if (aggroSource?.isEnemyAggroActive()) {
+      const target = aggroSource.getEnemyAggroPosition(this.aggroTargetPosition);
+      const offsetX = target.x - enemy.mesh.position.x;
+      const offsetZ = target.z - enemy.mesh.position.z;
+      if (Math.hypot(offsetX, offsetZ) > 0.001) {
+        targetHeading = Math.atan2(-offsetX, -offsetZ);
+      }
+    }
+    shield.heading = moveAngleToward(
+      shield.heading,
+      targetHeading,
+      SHIELD_ROTATION_SPEED * deltaSeconds,
+    );
+    shield.mesh.position.set(
+      enemy.mesh.position.x,
+      SHIELD_HEIGHT / 2,
+      enemy.mesh.position.z,
+    );
+    shield.mesh.rotation.y = shield.heading;
+  }
+
+  private getEnemyForwardHeading(enemy: EnemyState): number {
+    return Math.atan2(enemy.mesh.position.x, enemy.mesh.position.z);
   }
 
   private damageEnemiesInEchoExplosion(position: THREE.Vector3): void {
     const echoConfig = GAME_CONFIG.echo;
-    const damage = GAME_CONFIG.defense.enemyHealth * echoConfig.explosionDamageMultiplier;
+    const damage = DEFENSE_CONFIG.enemies.a.health * echoConfig.explosionDamageMultiplier;
     for (const enemy of [...this.enemies]) {
       const offset = enemy.mesh.position.clone().sub(position);
       const planarDistance = Math.hypot(offset.x, offset.z);
@@ -507,6 +771,7 @@ export class TrainingWorld {
     if (enemyIndex >= 0) this.enemies.splice(enemyIndex, 1);
     const shootableIndex = this.shootables.indexOf(enemy.mesh);
     if (shootableIndex >= 0) this.shootables.splice(shootableIndex, 1);
+    this.removeEnemyShield(enemy);
 
     const direction = shotDirection.clone().setY(0);
     if (direction.lengthSq() < 0.0001) {
@@ -526,12 +791,17 @@ export class TrainingWorld {
       rotationAxis,
       elapsed: 0,
       duration: ENEMY_DEATH_SECONDS,
+      fallDistance: enemy.fallDistance,
       blastVelocity,
       spinAxis: blastVelocity
         ? new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize()
         : undefined,
     });
 
+    if (enemy.killChargeReward > 0) {
+      this.pendingDetonationChargeReward += enemy.killChargeReward;
+      this.spawnKillChargeRewardNumber(enemy.mesh.position, enemy.killChargeReward);
+    }
     this.remainingEnemies = Math.max(0, this.remainingEnemies - 1);
     if (this.remainingEnemies === 0) {
       this.waveIntermission = GAME_CONFIG.defense.waveIntermissionSeconds;
@@ -559,7 +829,7 @@ export class TrainingWorld {
         death.mesh.position
           .copy(death.startPosition)
           .addScaledVector(death.direction, knockback * 1.65);
-        death.mesh.position.y -= GAME_CONFIG.player.halfHeight * fall;
+        death.mesh.position.y -= death.fallDistance * fall;
         const fallRotation = new THREE.Quaternion().setFromAxisAngle(
           death.rotationAxis,
           fall * Math.PI * 0.5,
@@ -606,6 +876,48 @@ export class TrainingWorld {
     sprite.position.copy(startPosition);
     sprite.scale.set(1.25, 0.625, 1);
     sprite.renderOrder = 12;
+    this.scene.add(sprite);
+    this.damageNumbers.push({
+      sprite,
+      material,
+      texture,
+      startPosition,
+      elapsed: 0,
+      duration: DAMAGE_NUMBER_SECONDS,
+    });
+  }
+
+  private spawnKillChargeRewardNumber(position: THREE.Vector3, reward: number): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = 192;
+    canvas.height = 96;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const text = `+${reward}`;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.font = '700 63px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineJoin = 'round';
+    context.lineWidth = 12;
+    context.strokeStyle = '#000000';
+    context.strokeText(text, 96, 48);
+    context.fillStyle = '#39b9ff';
+    context.fillText(text, 96, 48);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    const startPosition = position.clone().add(new THREE.Vector3(0, 0.9, 0));
+    sprite.position.copy(startPosition);
+    sprite.scale.set(1.875, 0.9375, 1);
+    sprite.renderOrder = 13;
     this.scene.add(sprite);
     this.damageNumbers.push({
       sprite,

@@ -160,7 +160,7 @@ export class RifleController {
     const origin = new THREE.Vector3();
     this.camera.getWorldPosition(origin);
     this.eventSink?.recordShot(origin, direction);
-    const result = this.world.shoot(origin, direction, config.range);
+    const result = this.world.shoot(origin, direction, config.range, true, this.player);
     const muzzlePosition = new THREE.Vector3();
     this.muzzle.getWorldPosition(muzzlePosition);
     this.world.spawnTracer(muzzlePosition, result.point);

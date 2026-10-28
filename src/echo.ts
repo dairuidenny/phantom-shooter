@@ -116,6 +116,7 @@ export class EchoSystem implements WeaponEventSink {
   }
 
   update(deltaSeconds: number, active: boolean, adsAmount: number): void {
+    this.addDetonationCharge(this.world.consumeDetonationChargeReward());
     if (
       this.replacingSlot !== null &&
       this.player.consumeEchoReplacementCompleted()
@@ -191,9 +192,14 @@ export class EchoSystem implements WeaponEventSink {
   }
 
   registerHit(): void {
+    this.addDetonationCharge(1);
+  }
+
+  private addDetonationCharge(amount: number): void {
+    if (!Number.isFinite(amount) || amount <= 0) return;
     this.detonationCharge = Math.min(
       GAME_CONFIG.echo.detonationChargeRequired,
-      this.detonationCharge + 1,
+      this.detonationCharge + amount,
     );
   }
 
@@ -338,6 +344,7 @@ class EchoPlayback {
   private muzzleFlashTimer = 0;
   private frozen = false;
   private targeted = false;
+  private active = true;
 
   constructor(
     private readonly recording: EchoRecording,
@@ -400,6 +407,14 @@ class EchoPlayback {
 
   get object(): THREE.Object3D {
     return this.root;
+  }
+
+  isEnemyAggroActive(): boolean {
+    return this.active;
+  }
+
+  getEnemyAggroPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.getPosition(target);
   }
 
   update(deltaSeconds: number): void {
@@ -473,6 +488,7 @@ class EchoPlayback {
   }
 
   dispose(): void {
+    this.active = false;
     this.root.removeFromParent();
     this.root.traverse((object) => {
       const mesh = object as THREE.Mesh;
@@ -498,6 +514,7 @@ class EchoPlayback {
           action.direction,
           GAME_CONFIG.weapon.range,
           false,
+          this,
         );
         this.world.spawnTracer(action.origin, result.point, ECHO_BLUE);
         if (result.hitTarget) this.onHit();

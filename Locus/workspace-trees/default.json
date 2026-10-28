@@ -3,8 +3,8 @@
   "presetId": "default",
   "name": "Default",
   "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
-  "revision": 3,
-  "lastOperationId": "4fe22079-071b-4e2e-8371-25dec61d4b67",
+  "revision": 4,
+  "lastOperationId": "16939f2b-97b1-46aa-84de-6e9a8af9bb73",
   "nodes": [
     {
       "nodeId": "resource:system:a95caf8d-49b1-41ea-8195-a23e85ce0dac",
@@ -76,7 +76,7 @@
       "resourceKind": "session",
       "resourceId": "f5822083-ece0-439b-9d25-bc7cb6fa2788",
       "hidden": false,
-      "position": 8
+      "position": 9
     },
     {
       "nodeId": "resource:session:130f6faf-81c0-449b-8105-29cef0624e10",
@@ -84,6 +84,15 @@
       "nodeKind": "resource",
       "resourceKind": "session",
       "resourceId": "81c236c2-4a38-48e3-99ad-fa167b22aa1a",
+      "hidden": false,
+      "position": 8
+    },
+    {
+      "nodeId": "resource:session:558906f2-32e6-4242-871a-93e8391ed6fb",
+      "projectId": "checkout-d8ab7e6f4ff9f17059771cd8",
+      "nodeKind": "resource",
+      "resourceKind": "session",
+      "resourceId": "faa14d61-f26d-4ebe-a156-02b549d0b443",
       "hidden": false,
       "position": 7
     }

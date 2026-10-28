@@ -129,7 +129,7 @@ function buildHud(): HudElements {
         <div id="detonation-charge" class="detonation-charge">
           <kbd>Q</kbd>
           <div>
-            <span><b>虚影引爆</b><em id="detonation-charge-value">0 / 300</em></span>
+            <span><b>虚影引爆</b><em id="detonation-charge-value">0 / 200</em></span>
             <i class="detonation-charge-track"><b id="detonation-charge-fill"></b></i>
           </div>
         </div>
@@ -200,6 +200,18 @@ async function main(): Promise<void> {
   let hasStarted = false;
   let failureVisible = false;
   let wasRecording = false;
+  let previousBaseHealthFraction = 1;
+  let baseHealthShakeCooldown = 0;
+  let baseHealthShakeQueued = false;
+
+  const triggerBaseHealthShake = (): void => {
+    hud.baseHealth.classList.remove('hit');
+    void hud.baseHealth.offsetWidth;
+    hud.baseHealth.classList.add('hit');
+    // The CSS shake lasts 380ms; the remaining 500ms is an enforced quiet interval.
+    baseHealthShakeCooldown = 0.88;
+    baseHealthShakeQueued = false;
+  };
 
   const updateSelectedCards = (levelId: LevelId): void => {
     document.querySelectorAll<HTMLElement>('[data-level]').forEach((card) => {
@@ -230,6 +242,10 @@ async function main(): Promise<void> {
     session = { levelId, physicsWorld, world, player, echoSystem, rifle };
     failureVisible = false;
     wasRecording = false;
+    previousBaseHealthFraction = world.baseHealthFraction;
+    baseHealthShakeCooldown = 0;
+    baseHealthShakeQueued = false;
+    hud.baseHealth.classList.remove('hit');
     hud.failureOverlay.classList.remove('visible');
     updateSelectedCards(levelId);
   };
@@ -353,6 +369,15 @@ async function main(): Promise<void> {
       }
       hud.waveNumber.textContent = world.currentWave.toString();
       hud.enemyCount.textContent = world.remainingEnemyCount.toString();
+      const currentBaseHealthFraction = world.baseHealthFraction;
+      baseHealthShakeCooldown = Math.max(0, baseHealthShakeCooldown - deltaSeconds);
+      if (currentBaseHealthFraction < previousBaseHealthFraction) {
+        baseHealthShakeQueued = true;
+      }
+      if (baseHealthShakeQueued && baseHealthShakeCooldown <= 0) {
+        triggerBaseHealthShake();
+      }
+      previousBaseHealthFraction = currentBaseHealthFraction;
       hud.baseHealthFill.style.width = `${world.baseHealthFraction * 100}%`;
       hud.baseHealthFill.classList.toggle('critical', world.baseHealthFraction <= 0.3);
       hud.baseHealthValue.textContent = `${world.baseHealth} / ${GAME_CONFIG.defense.towerMaxHealth}`;

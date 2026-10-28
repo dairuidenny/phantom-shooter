@@ -194,6 +194,14 @@ export class PlayerController {
     this.yaw += yaw;
   }
 
+  isEnemyAggroActive(): boolean {
+    return true;
+  }
+
+  getEnemyAggroPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.getBodyPosition(target);
+  }
+
   getBodyPosition(target: THREE.Vector3): THREE.Vector3 {
     const position = this.body.translation();
     return target.set(position.x, position.y, position.z);
